@@ -98,10 +98,12 @@ aio_linux_init(struct event_base *base)
 {
 	struct aio_linux_ctx *ctx;
 
-	ctx = malloc(sizeof(struct aio_linux_ctx) +
-		     sizeof(struct iocb*)   * EVENT_LINUX_AIO_MAX_NENT + 
-		     sizeof(struct event*)  * EVENT_LINUX_AIO_MAX_NENT +
-		     sizeof(struct io_event)* EVENT_LINUX_AIO_MAX_NENT);
+	event_warn("aio_linux_init called\n");
+
+	ctx = mm_calloc(1, sizeof(struct aio_linux_ctx) +
+			sizeof(struct iocb*)   * EVENT_LINUX_AIO_MAX_NENT + 
+			sizeof(struct event*)  * EVENT_LINUX_AIO_MAX_NENT +
+			sizeof(struct io_event)* EVENT_LINUX_AIO_MAX_NENT);
 	if(ctx == NULL)
 		goto out;
 
@@ -141,6 +143,8 @@ aio_linux_dealloc(struct event_base *base, void *_evaiobase)
 {
 	struct aio_linux_ctx *ctx = (struct aio_linux_ctx *)_evaiobase;
 
+	event_warn("aio_linux_dealloc called\n");
+
 	if(ctx->notify_event_added != 0)
 		event_del(&ctx->notify_event);
 
@@ -152,6 +156,8 @@ aio_linux_dealloc(struct event_base *base, void *_evaiobase)
 static void
 aio_linux_prepare_read(struct event *ev, int fd, void *buf, size_t length, off_t offset, int pri)
 {
+	event_warn("aio_linux_prepare_read called\n");
+
 	io_prep_pread(&ev->_ev.ev_aio.iocb, fd, buf, length, offset);
 	ev->_ev.ev_aio.iocb.aio_reqprio = pri;
 #if 0
@@ -168,6 +174,9 @@ aio_linux_prepare_read(struct event *ev, int fd, void *buf, size_t length, off_t
 static void
 aio_linux_prepare_write(struct event *ev, int fd, void *buf, size_t length, off_t offset, int pri)
 {
+	event_warn("aio_linux_prepare_write called\n");
+	
+
 	io_prep_pwrite(&ev->_ev.ev_aio.iocb, fd, buf, length, offset);
 	ev->_ev.ev_aio.iocb.aio_reqprio = pri;
 
@@ -191,6 +200,8 @@ aio_linux_submit(struct event_base *base)
 	int nent;
 	struct event *ev;
 	int i;
+
+	event_warn("aio_linux_submit called\n");
 
 	// Submit as many events as possible
 	do{
@@ -290,6 +301,8 @@ static void
 aio_linux_cancel(struct event_base *base, struct event *ev)
 {
 	struct aio_linux_ctx *ctx = (struct aio_linux_ctx *)base->evaiobase;
+
+	event_warn("aio_linux_submit called\n");
 
 	if(ev->ev_flags & EVLIST_AIO_SUBMITTED)
 	{

@@ -809,8 +809,10 @@ event_base_loop(struct event_base *base, int flags)
 
 		// Submit outsanding AIO events
 		if(!TAILQ_EMPTY(&base->aioqueue))
-			if (base && base->evaiosel && base->evaiosel->submit)
+			if (base && base->evaiosel && base->evaiosel->submit) {
+				event_msgx("submitting outstanding aio requests");
 				base->evaiosel->submit(base);
+			}
 
 		res = evsel->dispatch(base, tv_p);
 
@@ -1226,9 +1228,7 @@ event_add_internal(struct event *ev, const struct timeval *tv)
 			event_queue_insert(base, ev, EVLIST_INSERTED);
 	} else if ((ev->ev_events & EV_AIO) &&
 	    !(ev->ev_flags & EVLIST_AIO)) {
-		res = evsel->add(evbase, ev);
-		if (res != -1)
-			event_queue_insert(base, ev, EVLIST_AIO);
+	        event_queue_insert(base, ev, EVLIST_AIO);
 	}
 
 	/* 

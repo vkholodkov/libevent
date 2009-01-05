@@ -1336,7 +1336,7 @@ event_del_internal(struct event *ev)
 			res = evmap_signal_del(base, ev->ev_fd, ev);
 	} else if (ev->ev_flags & EVLIST_AIO) {
 		event_queue_remove(base, ev, EVLIST_AIO);
-		res = evsel->del(evbase, ev);
+//		res = evsel->del(evbase, ev);
 	}
 
 	/* if we are not in the right thread, we need to wake up the loop */

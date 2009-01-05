@@ -87,10 +87,7 @@ aio_linux_callback(int fd, short event, void *_base)
 
 	assert (result == sizeof(uint64_t) || result == 0);
 
-	while(u > 0) {
-		aio_linux_process((struct event_base*)_base, u);
-		u--;
-	}
+	aio_linux_process((struct event_base*)_base, u);
 }
 
 static void*
@@ -160,6 +157,8 @@ aio_linux_prepare_read(struct event *ev, int fd, void *buf, size_t length, off_t
 
 	io_prep_pread(&ev->_ev.ev_aio.iocb, fd, buf, length, offset);
 	ev->_ev.ev_aio.iocb.aio_reqprio = pri;
+	ev->_ev.ev_aio.iocb.data = ev;
+	
 #if 0
 	memset(&ev->_ev.ev_aio.iocb, 0, sizeof(ev->_ev.ev_aio.iocb));
 	ev->_ev.ev_aio.iocb->aio_fildes = fd;
@@ -179,6 +178,7 @@ aio_linux_prepare_write(struct event *ev, int fd, void *buf, size_t length, off_
 
 	io_prep_pwrite(&ev->_ev.ev_aio.iocb, fd, buf, length, offset);
 	ev->_ev.ev_aio.iocb.aio_reqprio = pri;
+	ev->_ev.ev_aio.iocb.data = ev;
 
 #if 0
 	memset(ev->_ev.ev_aio.iocb, 0, sizeof(ev->_ev.ev_aio.iocb));
@@ -280,13 +280,14 @@ static void
 aio_linux_process(struct event_base *base, uint64_t _hint)
 {
 	struct aio_linux_ctx *ctx = (struct aio_linux_ctx *)base->evaiobase;
-	int result;
+	int result = 0;
 	struct timespec timeout = {0, 0};
 	struct event *ev;
 	int i;
 
 	// Retrieve as many events as possible to prevent starvation
 	do{
+		_hint -= (unsigned)result;
 		result = io_getevents(ctx->ctx_id, _hint < ctx->max_nent ? _hint : ctx->max_nent,
 				      ctx->max_nent, ctx->io_events, &timeout);
 
@@ -294,7 +295,8 @@ aio_linux_process(struct event_base *base, uint64_t _hint)
 			aio_linux_process_one((struct event*)ctx->io_events[i].data,
 					      ctx->io_events + i);
 		}
-	}while(result > 0 && result == ctx->max_nent);
+
+	}while(result == ctx->max_nent);
 }
 
 static void

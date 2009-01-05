@@ -50,6 +50,10 @@ extern "C" {
 #include <aio.h>
 #endif
 
+#ifdef _EVENT_HAVE_LIBAIO_H
+#include <libaio.h>
+#endif
+
 /* For int types. */
 #include <event2/util.h>
 

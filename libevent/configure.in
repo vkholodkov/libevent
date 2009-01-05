@@ -38,6 +38,7 @@ AC_CHECK_LIB(socket, socket)
 AC_CHECK_LIB(resolv, inet_aton)
 AC_CHECK_LIB(rt, clock_gettime)
 AC_CHECK_LIB(nsl, inet_ntoa)
+AC_CHECK_LIB(aio, io_submit)
 
 dnl Determine if we have zlib for regression tests
 ZLIB_LIBS=""
@@ -326,7 +327,7 @@ AC_CHECK_FUNCS(eventfd, [haveeventfd=yes], )
 haveiosubmit=no
 AC_CHECK_FUNCS(io_submit, [haveiosubmit=yes], )
 
-if test "x$haveiosubmit" = "xyes" -a "x$haveeventfd" = "xyes"; then
+if test "x$haveeventfd" = "xyes"; then
 	AC_DEFINE(HAVE_LINUX_AIO, 1,
 		[Define if your system supports Linux AIO with eventfd])
     AC_LIBOBJ(aio_linux)

@@ -118,8 +118,6 @@ aio_linux_init(struct event_base *base)
 	
 	ctx->notify_event.ev_flags |= EVLIST_INTERNAL;
 
-	ctx->notify_event_added = 0;
-
 	if(io_setup(ctx->max_nent, &ctx->ctx_id) < 0)
 		goto out_close;
 

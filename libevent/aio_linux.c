@@ -227,31 +227,32 @@ aio_linux_submit(struct event_base *base)
 			iosubmit_error = errno;
 
 			if(result != nent) {
+				assert(0);
 
 #if 0
-				assert(0); // not supported currently
 				for(i = 0; i < nent; i++) {
 					ev = events[i];
 
-/*					if(error == EINPROGRESS) {
+					if(error == EINPROGRESS) {
 						TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
 						TAILQ_INSERT_TAIL(&base->submittedqueue, ev, ev_submitted_next);
 					}else{
 						ev->_ev.ev_aio.error = error;
 						ev->_ev.ev_aio.result = aio_return(&ev->_ev.ev_aio.aiocb);
-
+						
 						event_active(ev, EV_AIO, 1);
-					}*/
+					}
 				}
-#endif
 				if(iosubmit_error == EAGAIN)
 					break;
+#endif
 
 			}else{
 				for(i = 0; i < nent; i++) {
 					ev = ctx->events[i];
 					ev->ev_flags |= EVLIST_AIO_SUBMITTED;
 					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
+					TAILQ_INSERT_TAIL(&base->submittedqueue, ev, ev_submitted_next);
 				}
 			}
 		}
@@ -265,11 +266,14 @@ aio_linux_process_one(struct event *ev, struct io_event *io_event)
 
 	if(io_event->res < 0) {
 		ev->_ev.ev_aio.result = -1;	
-		ev->_ev.ev_aio.error = io_event->res;	
+		ev->ev_res = ev->_ev.ev_aio.error = io_event->res;	
 	}else{
 		ev->_ev.ev_aio.result = io_event->res;	
-		ev->_ev.ev_aio.error = 0;	
+		ev->ev_res = ev->_ev.ev_aio.error = 0;	
 	}
+
+	// in aio_linux_submit we removed ev from the aioqueue. 
+	// we can "just" submit the aio request and we are done. 
 
 	event_active(ev, EV_AIO, 1);
 }

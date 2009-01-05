@@ -208,7 +208,7 @@ aio_linux_submit(struct event_base *base)
 		nent = 0;
 
 		for (ev = TAILQ_FIRST(&base->aioqueue); ev && nent < ctx->max_nent;
-			ev = TAILQ_FIRST(&base->aioqueue)) 
+		     ev = TAILQ_NEXT(ev, ev_aio_next))
 		{
 			ev->_ev.ev_aio.iocb.u.c.flags = IOCB_FLAG_RESFD;
 			ev->_ev.ev_aio.iocb.u.c.resfd = ctx->notify_fd;

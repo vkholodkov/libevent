@@ -46,6 +46,10 @@ extern "C" {
 #include <sys/time.h>
 #endif
 
+#ifdef _EVENT_HAVE_AIO_H
+#include <aio.h>
+#endif
+
 /* For int types. */
 #include <event2/util.h>
 
@@ -60,10 +64,12 @@ extern "C" {
 #define EVLIST_SIGNAL	0x04
 #define EVLIST_ACTIVE	0x08
 #define EVLIST_INTERNAL	0x10
+#define EVLIST_AIO	0x20
+#define EVLIST_AIO_SUBMITTED	0x40
 #define EVLIST_INIT	0x80
 
 /* EVLIST_X_ Private space: 0x1000-0xf000 */
-#define EVLIST_ALL	(0xf000 | 0x9f)
+#define EVLIST_ALL	(0xf000 | 0xff)
 
 /* Fix so that ppl dont have to run with <sys/queue.h> */
 #ifndef TAILQ_ENTRY
@@ -101,6 +107,23 @@ struct event {
 		struct {
 			struct timeval tv_interval;
 		} ev_periodic;
+
+		struct {
+#ifdef _EVENT_HAVE_AIO_H
+			union {
+#ifdef _EVENT_HAVE_POSIX_AIO
+				struct aiocb aiocb;
+#endif
+#ifdef _EVENT_HAVE_LINUX_AIO
+				struct iocb iocb;
+#endif
+            };
+#endif
+			int error, result;
+
+			TAILQ_ENTRY (event) (ev_aio_next);
+			TAILQ_ENTRY (event) (ev_submitted_next);
+		} ev_aio;
 	} _ev;
 
 	short ev_events;
@@ -111,7 +134,12 @@ struct event {
 
 	/* allows us to adopt for different types of events */
 	void (*ev_closure)(struct event_base *, struct event *);
-	void (*ev_callback)(evutil_socket_t, short, void *arg);
+
+    union {
+        void (*ev_callback)(evutil_socket_t, short, void *arg);
+        void (*ev_aio_callback)(struct event *, void*, size_t, off_t, int, int, void *);
+    };
+
 	void *ev_arg;
 
 	int ev_res;		/* result passed to event callback */

@@ -2354,6 +2354,8 @@ main (int argc, char **argv)
 	test_fork();
 #endif
 
+    test_aio();
+
 #ifndef WIN32
 	test_edgetriggered();
 	test_simplesignal();

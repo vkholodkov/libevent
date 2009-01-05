@@ -90,6 +90,16 @@ extern const struct eventop devpollops;
 extern const struct eventop win32ops;
 #endif
 
+#ifdef HAVE_POSIX_AIO
+#ifdef HAVE_WORKING_KQUEUE
+extern const struct eventaioop aio_posix_kqueue_ops;
+#endif 
+extern const struct eventaioop aio_posix_ops;
+#endif
+#ifdef HAVE_LINUX_AIO
+extern const struct eventaioop aio_linux_ops;
+#endif
+
 /* In order of preference */
 static const struct eventop *eventops[] = {
 #ifdef HAVE_EVENT_PORTS
@@ -112,6 +122,22 @@ static const struct eventop *eventops[] = {
 #endif
 #ifdef WIN32
 	&win32ops,
+#endif
+	NULL
+};
+
+/* AIO operations in order of preference */
+const struct eventaioop *eventaioops[] = {
+#ifdef HAVE_POSIX_AIO
+#ifdef HAVE_WORKING_KQUEUE
+	&aio_posix_kqueue_ops,
+#endif 
+#endif 
+#ifdef HAVE_LINUX_AIO
+	&aio_linux_ops,
+#endif
+#ifdef HAVE_POSIX_AIO
+	&aio_posix_ops,
 #endif
 	NULL
 };
@@ -245,6 +271,9 @@ event_base_new_with_config(struct event_config *cfg)
 
 	min_heap_ctor(&base->timeheap);
 	TAILQ_INIT(&base->eventqueue);
+	TAILQ_INIT(&base->sig.signalqueue);
+	TAILQ_INIT(&base->aioqueue);
+	TAILQ_INIT(&base->submittedqueue);
 	base->sig.ev_signal_pair[0] = -1;
 	base->sig.ev_signal_pair[1] = -1;
 
@@ -279,8 +308,20 @@ event_base_new_with_config(struct event_config *cfg)
 		}
 	}
 
+	/* Select AIO backend */	
+	base->evaiobase = NULL;
+	for (i = 0; eventaioops[i] && !base->evaiobase; i++) {
+		if (eventaioops[i]->need_direct_notification
+			&& !(base->evsel->features & EV_FEATURE_AIO))
+				continue;
+
+		base->evaiosel = eventaioops[i];
+
+		base->evaiobase = base->evaiosel->init ? base->evaiosel->init(base) : base;
+	}
+
 	if (getenv("EVENT_SHOW_METHOD"))
-		event_msgx("libevent using: %s", base->evsel->name);
+		event_msgx("libevent using: %s, %s", base->evsel->name, base->evaiosel->name);
 
 	/* allocate a single active event queue */
 	event_base_priority_init(base, 1);
@@ -345,8 +386,11 @@ event_base_free(struct event_base *base)
 		event_debug(("%s: %d events were still set in base",
 			__func__, n_deleted));
 
+	if (base->evaiosel != NULL && base->evaiosel->dealloc != NULL)
+		base->evaiosel->dealloc(base, base->evaiobase);
+
 	if (base->evsel != NULL && base->evsel->dealloc != NULL)
-		base->evsel->dealloc(base);
+		base->evsel->dealloc(base, base->evbase);
 
 	for (i = 0; i < base->nactivequeues; ++i)
 		assert(TAILQ_EMPTY(base->activequeues[i]));
@@ -762,6 +806,12 @@ event_base_loop(struct event_base *base, int flags)
 		/* clear time cache */
 		base->tv_cache.tv_sec = 0;
 
+
+		// Submit outsanding AIO events
+		if(!TAILQ_EMPTY(&base->aioqueue))
+			if (base && base->evaiosel && base->evaiosel->submit)
+				base->evaiosel->submit(base);
+
 		res = evsel->dispatch(base, tv_p);
 
 		if (res == -1)
@@ -915,6 +965,119 @@ event_assign(struct event *ev, struct event_base *base, evutil_socket_t fd, shor
 }
 
 void
+event_aio_assign(struct event *ev, struct event_base *base, void (*cb)(struct event *, void*, size_t, off_t, int, int, void *), void *arg)
+{
+	/* Take the current base - caller needs to set the real base later */
+	ev->ev_base = current_base;
+
+	ev->ev_aio_callback = cb;
+	ev->ev_arg = arg;
+	ev->ev_fd = -1;
+	ev->ev_events = EV_AIO;
+	ev->ev_res = 0;
+	ev->ev_flags = EVLIST_INIT;
+	ev->ev_ncalls = 0;
+	ev->ev_pncalls = NULL;
+	ev->ev_closure = NULL;
+
+	min_heap_elem_init(ev);
+
+	/* by default, we put new events into the middle priority */
+	if (current_base)
+		ev->ev_pri = current_base->nactivequeues/2;
+
+	if (base != NULL) {
+        /* Only innocent events may be assigned to a different base */
+        assert(ev->ev_flags == EVLIST_INIT);
+
+        ev->ev_base = base;
+        ev->ev_pri = base->nactivequeues/2;
+    }
+}
+
+
+void
+event_aio_read(struct event *ev, int fd, void *buf, size_t length, off_t offset, int pri)
+{
+	ev->ev_fd = fd;
+	ev->ev_events = EV_AIO;
+
+	if(ev->ev_base->evaiosel->prepare_read)
+		ev->ev_base->evaiosel->prepare_read(ev, fd, buf, length, offset, pri);
+
+	event_add(ev, NULL);
+}
+
+void
+event_aio_write(struct event *ev, int fd, void *buf, size_t length, off_t offset, int pri)
+{
+	ev->ev_fd = fd;
+	ev->ev_events = EV_AIO;
+
+	if(ev->ev_base->evaiosel->prepare_write)
+		ev->ev_base->evaiosel->prepare_write(ev, fd, buf, length, offset, pri);
+
+	event_add(ev, NULL);
+}
+
+void
+event_aio_cancel(struct event *ev)
+{
+	if(ev->ev_base->evaiosel->cancel)
+		ev->ev_base->evaiosel->cancel(ev->ev_base, ev);
+}
+
+int
+event_aio_get_events_to_submit(struct event_base *base, struct event** events, int maxnent)
+{
+	int nent = 0;
+	struct event *ev;
+
+	for (ev = TAILQ_FIRST(&base->aioqueue); ev && nent < maxnent;
+		ev = TAILQ_NEXT(ev, ev_aio_next)) 
+	{
+		events[nent] = ev;
+		nent++;
+	}
+
+	return nent;
+}
+
+void
+event_aio_set_submitted(struct event* ev)
+{
+	if(ev->ev_flags & EVLIST_AIO)
+		event_queue_remove(ev->ev_base, ev, EVLIST_AIO);
+
+	event_queue_insert(ev->ev_base, ev, EVLIST_AIO_SUBMITTED);
+}
+
+void
+event_aio_set_cancelled(struct event* ev)
+{
+	if(ev->ev_flags & EVLIST_AIO)
+		event_queue_remove(ev->ev_base, ev, EVLIST_AIO);
+
+	if(ev->ev_flags & EVLIST_AIO_SUBMITTED)
+		event_queue_remove(ev->ev_base, ev, EVLIST_AIO_SUBMITTED);
+}
+
+void
+event_aio_set_ready(struct event* ev, int result, int error)
+{
+	if(ev->ev_flags & EVLIST_AIO)
+		event_queue_remove(ev->ev_base, ev, EVLIST_AIO);
+
+	if(ev->ev_flags & EVLIST_AIO_SUBMITTED)
+		event_queue_remove(ev->ev_base, ev, EVLIST_AIO_SUBMITTED);
+
+	ev->_ev.ev_aio.error = error;
+	ev->_ev.ev_aio.result = result;
+
+	event_active(ev, EV_AIO, 1);
+}
+
+void
 evperiodic_assign(struct event *ev, struct event_base *base,
     const struct timeval *tv,
     void (*cb)(evutil_socket_t, short, void *), void *arg)
@@ -1061,6 +1224,11 @@ event_add_internal(struct event *ev, const struct timeval *tv)
 			res = evmap_signal_add(base, ev->ev_fd, ev);
 		if (res != -1)
 			event_queue_insert(base, ev, EVLIST_INSERTED);
+	} else if ((ev->ev_events & EV_AIO) &&
+	    !(ev->ev_flags & EVLIST_AIO)) {
+		res = evsel->add(evbase, ev);
+		if (res != -1)
+			event_queue_insert(base, ev, EVLIST_AIO);
 	}
 
 	/* 
@@ -1157,12 +1325,18 @@ event_del_internal(struct event *ev)
 	if (ev->ev_flags & EVLIST_ACTIVE)
 		event_queue_remove(base, ev, EVLIST_ACTIVE);
 
+	if (ev->ev_flags & EVLIST_AIO_SUBMITTED)
+		event_queue_remove(base, ev, EVLIST_AIO_SUBMITTED);
+
 	if (ev->ev_flags & EVLIST_INSERTED) {
 		event_queue_remove(base, ev, EVLIST_INSERTED);
 		if (ev->ev_events & (EV_READ|EV_WRITE))
 			res = evmap_io_del(base, ev->ev_fd, ev);
 		else
 			res = evmap_signal_del(base, ev->ev_fd, ev);
+	} else if (ev->ev_flags & EVLIST_AIO) {
+		event_queue_remove(base, ev, EVLIST_AIO);
+		res = evsel->del(evbase, ev);
 	}
 
 	/* if we are not in the right thread, we need to wake up the loop */
@@ -1338,6 +1512,12 @@ event_queue_remove(struct event_base *base, struct event *ev, int queue)
 	case EVLIST_TIMEOUT:
 		min_heap_erase(&base->timeheap, ev);
 		break;
+	case EVLIST_AIO:
+		TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);
+		break;
+	case EVLIST_AIO_SUBMITTED:
+		TAILQ_REMOVE(&base->submittedqueue, ev, ev_submitted_next);
+		break;
 	default:
 		event_errx(1, "%s: unknown queue %x", __func__, queue);
 	}
@@ -1372,6 +1552,12 @@ event_queue_insert(struct event_base *base, struct event *ev, int queue)
 		min_heap_push(&base->timeheap, ev);
 		break;
 	}
+	case EVLIST_AIO:
+		TAILQ_INSERT_TAIL(&base->aioqueue, ev, ev_aio_next);
+		break;
+	case EVLIST_AIO_SUBMITTED:
+		TAILQ_INSERT_TAIL(&base->submittedqueue, ev, ev_submitted_next);
+		break;
 	default:
 		event_errx(1, "%s: unknown queue %x", __func__, queue);
 	}

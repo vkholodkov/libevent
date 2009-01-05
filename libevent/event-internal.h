@@ -41,6 +41,8 @@ extern "C" {
 /* mutually exclusive */
 #define ev_signal_next	_ev.ev_signal.ev_signal_next
 #define ev_io_next	_ev.ev_io.ev_io_next
+#define ev_aio_next	_ev.ev_aio.ev_aio_next
+#define ev_submitted_next	_ev.ev_aio.ev_submitted_next
 
 /* used only by signals */
 #define ev_ncalls	_ev.ev_signal.ev_ncalls
@@ -78,8 +80,20 @@ struct event_signal_map {
 	int nentries;
 };
 
+struct eventaioop {
+	const char *name;
+	void *(*init)(struct event_base *);
+	void (*dealloc)(struct event_base *, void*);
+	void (*prepare_read)(struct event *, int fd, void *buf, size_t length, off_t offset, int pri);
+	void (*prepare_write)(struct event *, int fd, void *buf, size_t length, off_t offset, int pri);
+	void (*submit)(struct event_base *);
+	void (*cancel)(struct event_base *, struct event *ev);
+	int need_direct_notification;
+};
+
 struct event_base {
 	const struct eventop *evsel;
+	const struct eventaioop *evaiosel;
 	void *evbase;
 
 	/* signal handling info */
@@ -87,6 +101,8 @@ struct event_base {
 	void *evsigbase;
 
 	struct evsig_info sig;
+
+	void *evaiobase;
 
 	int event_count;		/* counts number of total events */
 	int event_count_active;	/* counts number of active events */
@@ -103,6 +119,10 @@ struct event_base {
 
 	/* for mapping signal activity to events */
 	struct event_signal_map sigmap;
+
+	/* AIO queues */
+	struct event_list aioqueue;
+	struct event_list submittedqueue;
 
 	struct event_list eventqueue;
 	struct timeval event_tv;
@@ -158,6 +178,14 @@ struct event_config {
 int _evsig_set_handler(struct event_base *base, int evsignal,
 			  void (*fn)(int));
 int _evsig_restore_handler(struct event_base *base, int evsignal);
+
+int event_aio_get_events_to_submit(struct event_base *base, struct event**, int maxnent);
+
+void event_aio_set_submitted(struct event*);
+
+void event_aio_set_cancelled(struct event*);
+
+void event_aio_set_ready(struct event*, int result, int error);
 
 #ifdef __cplusplus
 }

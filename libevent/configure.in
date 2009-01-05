@@ -53,7 +53,7 @@ AM_CONDITIONAL(ZLIB_REGRESS, [test "$have_zlib" != "no"])
 
 dnl Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS(fcntl.h stdarg.h inttypes.h stdint.h stddef.h poll.h signal.h unistd.h sys/epoll.h sys/time.h sys/queue.h sys/event.h sys/param.h sys/ioctl.h sys/select.h sys/devpoll.h port.h netinet/in.h netinet/in6.h sys/socket.h sys/uio.h arpa/inet.h)
+AC_CHECK_HEADERS(fcntl.h stdarg.h inttypes.h stdint.h stddef.h poll.h signal.h unistd.h sys/epoll.h sys/time.h sys/queue.h sys/event.h sys/param.h sys/ioctl.h sys/select.h sys/devpoll.h port.h netinet/in.h netinet/in6.h sys/socket.h sys/uio.h aio.h libaio.h sys/eventfd.h arpa/inet.h)
 if test "x$ac_cv_header_sys_queue_h" = "xyes"; then
 	AC_MSG_CHECKING(for TAILQ_FOREACH in sys/queue.h)
 	AC_EGREP_CPP(yes,
@@ -306,6 +306,31 @@ if test "x$bwin32" = "xtrue"; then
 fi
 if test "x$needsignal" = "xyes" ; then
 	AC_LIBOBJ(signal)
+fi
+
+haveposixaio=no
+AC_CHECK_FUNCS(lio_listio, [haveposixaio=yes], )
+if test "x$haveposixaio" = "xyes" ; then
+	AC_DEFINE(HAVE_POSIX_AIO, 1,
+		[Define if your system supports POSIX AIO])
+    AC_LIBOBJ(aio_posix)
+fi
+
+if test "x$haveposixaio" = "xyes" -a "x$havekqueue" = "xyes" ; then
+AC_LIBOBJ(aio_posix_kqueue)
+fi
+
+haveeventfd=no
+AC_CHECK_FUNCS(eventfd, [haveeventfd=yes], )
+
+haveiosubmit=no
+AC_CHECK_FUNCS(io_submit, [haveiosubmit=yes], )
+
+if test "x$haveiosubmit" = "xyes" -a "x$haveeventfd" = "xyes"; then
+	AC_DEFINE(HAVE_LINUX_AIO, 1,
+		[Define if your system supports Linux AIO with eventfd])
+    AC_LIBOBJ(aio_linux)
+    havelinuxaio=yes
 fi
 
 AC_TYPE_PID_T

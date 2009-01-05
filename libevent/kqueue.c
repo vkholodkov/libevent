@@ -90,7 +90,7 @@ const struct eventop kqops = {
 	kq_dispatch,
 	kq_dealloc,
 	1 /* need reinit */,
-    EV_FEATURE_ET|EV_FEATURE_O1|EV_FEATURE_FDS,
+	EV_FEATURE_ET|EV_FEATURE_O1|EV_FEATURE_FDS|EV_FEATURE_AIO,
 };
 
 static const struct eventop kqsigops = {
@@ -275,10 +275,15 @@ kq_dispatch(struct event_base *base, struct timeval *tv)
 			which |= EV_WRITE;
 		} else if (events[i].filter == EVFILT_SIGNAL) {
 			which |= EV_SIGNAL;
+		} else if (events[i].filter == EVFILT_AIO) {
+			which |= EV_AIO;
 		}
 
 		if (!which)
 			continue;
+
+		if (!(ev->ev_events & EV_PERSIST) || (events[i].filter == EVFILT_AIO))
+			ev->ev_flags &= ~EVLIST_X_KQINKERNEL;
 
 		if (events[i].filter == EVFILT_SIGNAL) {
 			evmap_signal_active(base, events[i].ident, 1);
@@ -325,6 +330,26 @@ kq_add(struct event_base *base, int fd, short old, short events)
 			return (-1);
 	}
 
+	if (ev->ev_events & EV_AIO) {
+		ev->_ev.ev_aio.aiocb.aio_sigevent.sigev_notify = SIGEV_KEVENT;
+		ev->_ev.ev_aio.aiocb.aio_sigevent.sigev_notify_kqueue = kqop->kq;
+		ev->_ev.ev_aio.aiocb.aio_sigevent.sigev_value.sigval_ptr = (void*)ev;
+
+		// AIO events should be added only once
+		if(!(ev->ev_flags & EVLIST_X_KQINKERNEL)) {
+			memset(&kev, 0, sizeof(kev));
+			kev.ident = (uintptr_t)&ev->_ev.ev_aio.aiocb;
+			kev.filter = EVFILT_AIO;
+			kev.flags = EV_ADD;
+			kev.udata = PTR_TO_UDATA(ev);
+
+			if (kq_insert(kqop, &kev) == -1)
+				return (-1);
+
+			ev->ev_flags |= EVLIST_X_KQINKERNEL;
+		}
+	}
+
 	return (0);
 }
 
@@ -352,6 +377,18 @@ kq_del(struct event_base *base, int fd, short old, short events)
 		
 		if (kq_insert(kqop, &kev) == -1)
 			return (-1);
+	}
+
+	if ((ev->ev_events & EV_AIO) && (ev->ev_flags & EVLIST_X_KQINKERNEL)) {
+ 		memset(&kev, 0, sizeof(kev));
+		kev.ident = (uintptr_t)&ev->_ev.ev_aio.aiocb;
+		kev.filter = EVFILT_AIO;
+		kev.flags = EV_DELETE;
+		
+		if (kq_insert(kqop, &kev) == -1)
+			return (-1);
+
+		ev->ev_flags &= ~EVLIST_X_KQINKERNEL;
 	}
 
 	return (0);

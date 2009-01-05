@@ -44,6 +44,7 @@ void regress_pthread(void);
 void regress_zlib(void);
 
 void test_edgetriggered(void);
+void test_aio(void);
 
 #ifdef __cplusplus
 }

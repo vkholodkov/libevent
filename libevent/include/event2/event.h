@@ -45,6 +45,10 @@ extern "C" {
 #include <sys/time.h>
 #endif
 
+#ifdef HAVE_AIO_H
+#include <aio.h>
+#endif
+
 #include <stdio.h>
 
 /* For int types. */
@@ -155,6 +159,9 @@ enum event_method_feature {
     /* Require an event method that allows file descriptors as well as
      * sockets. */
     EV_FEATURE_FDS = 0x04,
+    /* Require an event method that supports waiting for AIO
+     * completion natively. */
+    EV_FEATURE_AIO = 0x08,
 };
 
 /**
@@ -311,6 +318,8 @@ void evperiodic_assign(struct event *ev, struct event_base *base,
 #define EV_PERSIST	0x10
 /** Select edge-triggered behavior, if supported by the backend. */
 #define EV_ET       0x20
+/** AIO completion event. */
+#define EV_AIO      0x40
 
 /**
   Define a timer event.
@@ -386,7 +395,6 @@ void evperiodic_assign(struct event *ev, struct event_base *base,
  */
 void event_set(struct event *, evutil_socket_t, short, void (*)(evutil_socket_t, short, void *), void *);
 
-
 /**
   Prepare an event structure to be added.
 
@@ -415,6 +423,97 @@ void event_set(struct event *, evutil_socket_t, short, void (*)(evutil_socket_t,
 
   */
 void event_assign(struct event *, struct event_base *, evutil_socket_t, short, void (*)(evutil_socket_t, short, void *), void *);
+
+
+/**
+  Schedule an asynchronous disk IO read.
+
+  The function event_aio_read() schedules an asynchronous disk read. The event
+  will be prepared to call the function specified by the fn argument with a pointer
+  to buffer with the data read, number of bytes requested to be read, offset in the
+  file from which transfer was performed, number of bytes actually read, error number
+  and a void * argument given in the arg argument of event_aio_assign() call. 
+
+  The function fn will be called once after data transfer will be completed or
+  an error will occur. Whenever an error occures, result argument is set to -1
+  and error argument indicates the number of error occured.
+
+  Invokation of this function is allowed inside the callback for the same event structutre.
+
+  @param ev an event struct to be modified
+  @param fd file descriptor on which operation will be performed
+  @param buf pointer to buffer where the data will be transfered to
+  @param size number of bytes to be read
+  @param offset offset in the file to transfer data from 
+  @param pri priority of the IO operation to be initiated
+
+  @see event_aio_assign(), event_aio_write()
+
+  */
+void event_aio_read(struct event *, int, void *, size_t, off_t, int);
+
+/**
+  Schedule an asynchronous disk IO write.
+
+  The function event_aio_write() schedules an asynchronous disk write. The event
+  will be prepared to call the function specified by the fn argument with a pointer
+  to buffer with the data written, number of bytes requested to be written, offset
+  in the file to which transfer was performed, number of bytes actually written,
+  error number and a void * argument given in the arg argument of event_aio_assign()
+  call. 
+
+  The function fn will be called once after data transfer will be completed or
+  an error will occur. Whenever an error occures, result argument is set to -1
+  and error argument indicates the number of error occured.
+
+  Invokation of this function is allowed inside the callback for the same event structutre.
+
+  @param ev an event struct to be modified
+  @param fd file descriptor on which operation will be performed
+  @param buf pointer to buffer where the data will be transfered from
+  @param size number of bytes to be written
+  @param offset offset in the file to transfer data to 
+  @param pri priority of the IO operation to be initiated
+
+  @see event_aio_assign(), event_aio_read()
+
+  */
+void event_aio_write(struct event *, int, void *, size_t, off_t, int);
+
+/**
+  Cancel asynchronous disk IO read or write.
+
+  The function event_aio_cancel() removes event from internal queues if
+  it is still haven't been sumbitted or cancels IO operation in kernel if
+  it is already in progress. 
+
+  @param ev an event struct describing asynchronous IO operation to be cancelled
+
+  @see event_aio_read(), event_aio_write(), event_aio_assign()
+
+  */
+void event_aio_cancel(struct event *);
+
+/**
+  Prepare an event structure to monitor AIO operations.
+
+  The function event_aio_assign() prepares the event structure ev to be used in
+  future calls to event_aio_read(), event_aio_write() and event_aio_cancel().
+
+  Application should call this function before executing any AIO operation to declare
+  that specified event structure will be used to monitor AIO operation completion.
+  Application can initiate an IO operation via calling functions event_aio_read() and
+  event_aio_write() or cancel the IO operation in progress via calling event_aio_cancel().
+
+  @param ev an event struct to be modified
+  @param base the event base to which ev should be attached.
+  @param fn callback function to be invoked when the asynchronous operation completes
+  @param arg an argument to be passed to the callback function
+
+  @see event_aio_read(), event_aio_write(), event_aio_cancel()
+
+  */
+void event_aio_assign(struct event *, struct event_base *, void (*)(struct event *, void *, size_t, off_t, int, int, void *), void *);
 
 /**
   Create and allocate a new event structure, ready to be added.

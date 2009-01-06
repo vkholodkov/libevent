@@ -241,7 +241,6 @@ aio_linux_submit(struct event_base *base)
 					ev = ctx->events[i];
 					ev->ev_flags |= EVLIST_AIO_SUBMITTED;
 					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
-					TAILQ_INSERT_TAIL(&base->submittedqueue, ev, ev_submitted_next);
 				}
 			}
 		}

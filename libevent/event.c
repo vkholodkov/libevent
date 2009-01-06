@@ -1754,4 +1754,26 @@ event_base_dump_events(struct event_base *base, FILE *output)
 					(e->ev_res&EV_TIMEOUT)?" Timeout active":"");
 		}
 	}
+	fprintf(output, "Inserted AIO events\n");
+	TAILQ_FOREACH(e, &base->aioqueue, ev_aio_next) {
+		fprintf(output, "  %p [fd %ld]%s%s%s%s%s%s\n",
+			(void*)e, (long)e->_ev.ev_aio.iocb.aio_fildes,
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PREAD)?" Read":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PWRITE)?" Write":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_FSYNC)?" Fsync":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_FDSYNC)?" Fdsync":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PREADV)?" Preadv":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PWRITEV)?" Pwritev":"");
+	}
+	fprintf(output, "Scheduled AIO events\n");
+	TAILQ_FOREACH(e, &base->submittedqueue, ev_submitted_next) {
+		fprintf(output, "  %p [fd %ld]%s%s%s%s%s%s\n",
+			(void*)e, (long)e->_ev.ev_aio.iocb.aio_fildes,
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PREAD)?" Read":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PWRITE)?" Write":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_FSYNC)?" Fsync":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_FDSYNC)?" Fdsync":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PREADV)?" Preadv":"",
+			(e->_ev.ev_aio.iocb.aio_lio_opcode == IO_CMD_PWRITEV)?" Pwritev":"");
+	}
 }

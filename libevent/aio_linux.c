@@ -202,7 +202,7 @@ static void
 aio_linux_submit(struct event_base *base)
 {
 	struct aio_linux_ctx *ctx = (struct aio_linux_ctx *)base->evaiobase;
-	int result, iosubmit_error;
+	int result;
 	int nent;
 	struct event *ev;
 	int i;
@@ -223,7 +223,7 @@ aio_linux_submit(struct event_base *base)
 			nent++;
 		}
 
-		if(nent > 0) {
+		if(nent > 0){
 			if (ctx->notify_event_added == 0) {
 				event_add(&ctx->notify_event, NULL);
 				ctx->notify_event_added = 1;
@@ -231,34 +231,22 @@ aio_linux_submit(struct event_base *base)
 
 			result = io_submit(ctx->ctx_id, nent, ctx->iocbs);
 
-			iosubmit_error = errno;
-
-			if(result != nent) {
-				assert(0);
-
-#if 0
-				for(i = 0; i < nent; i++) {
-					ev = events[i];
-
-					if(error == EINPROGRESS) {
-						TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
-						TAILQ_INSERT_TAIL(&base->submittedqueue, ev, ev_submitted_next);
-					}else{
-						ev->_ev.ev_aio.error = error;
-						ev->_ev.ev_aio.result = aio_return(&ev->_ev.ev_aio.aiocb);
-						
-						event_active(ev, EV_AIO, 1);
-					}
-				}
-				if(iosubmit_error == EAGAIN)
-					break;
-#endif
-
-			}else{
-				for(i = 0; i < nent; i++) {
+			if(result > 0){
+				for(i = 0; i < result; i++) {
 					ev = ctx->events[i];
 					ev->ev_flags |= EVLIST_AIO_SUBMITTED;
 					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
+				}
+			}else if(result == -EAGAIN){
+				/// we couldn't enqueue more iops. defer submitting more
+				break;
+			}else{
+				for(i = 0; i < nent; i++) {
+					ev = ctx->events[i];
+
+					ev->_ev.ev_aio.error = -result;
+					ev->_ev.ev_aio.result = 0;
+					event_active(ev, EV_AIO, 1);
 				}
 			}
 		}

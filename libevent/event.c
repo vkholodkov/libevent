@@ -810,7 +810,6 @@ event_base_loop(struct event_base *base, int flags)
 		// Submit outsanding AIO events
 		if(!TAILQ_EMPTY(&base->aioqueue))
 			if (base && base->evaiosel && base->evaiosel->submit) {
-				event_msgx("submitting outstanding aio requests");
 				base->evaiosel->submit(base);
 			}
 

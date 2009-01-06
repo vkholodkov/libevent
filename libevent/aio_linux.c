@@ -90,6 +90,23 @@ aio_linux_callback(int fd, short event, void *_base)
 	aio_linux_process((struct event_base*)_base, u);
 }
 
+
+static void
+aio_linux_closure(struct event_base *base, struct event *ev)
+{
+	//todo: modify this to support vector io
+	(*ev->ev_aio_callback)(
+		ev
+		, (void*)ev->_ev.ev_aio.iocb.u.c.buf
+		, ev->_ev.ev_aio.iocb.u.c.nbytes
+		, ev->_ev.ev_aio.iocb.u.c.offset
+		, ev->_ev.ev_aio.result
+		, ev->_ev.ev_aio.error
+		, ev->ev_arg
+	  );
+}
+
+
 static void*
 aio_linux_init(struct event_base *base)
 {
@@ -199,6 +216,7 @@ aio_linux_submit(struct event_base *base)
 		{
 			ev->_ev.ev_aio.iocb.u.c.flags = IOCB_FLAG_RESFD;
 			ev->_ev.ev_aio.iocb.u.c.resfd = ctx->notify_fd;
+			ev->ev_closure = aio_linux_closure;
 
 			ctx->iocbs[nent] = &ev->_ev.ev_aio.iocb;
 			ctx->events[nent] = ev;
@@ -254,7 +272,8 @@ aio_linux_process_one(struct event *ev, struct io_event *io_event)
 
 	if(io_event->res < 0) {
 		ev->_ev.ev_aio.result = -1;	
-		ev->ev_res = ev->_ev.ev_aio.error = io_event->res;	
+		ev->ev_res = io_event->res;	
+		ev->_ev.ev_aio.error = -io_event->res;
 	}else{
 		ev->_ev.ev_aio.result = io_event->res;	
 		ev->ev_res = ev->_ev.ev_aio.error = 0;	

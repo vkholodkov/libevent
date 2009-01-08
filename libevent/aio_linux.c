@@ -50,9 +50,9 @@ struct aio_linux_ctx {
 	int notify_fd;
 	struct event notify_event;
 	unsigned int notify_event_added:1;
-	struct iocb **iocbs;
-	struct event **events;
-	struct io_event *io_events;
+	struct iocb *iocbs[EVENT_LINUX_AIO_MAX_NENT];
+	struct event *events[EVENT_LINUX_AIO_MAX_NENT];
+	struct io_event io_events[EVENT_LINUX_AIO_MAX_NENT];
 };
 
 static void *aio_linux_init(struct event_base *base);
@@ -112,10 +112,7 @@ aio_linux_init(struct event_base *base)
 {
 	struct aio_linux_ctx *ctx;
 
-	ctx = mm_calloc(1, sizeof(struct aio_linux_ctx) +
-			sizeof(struct iocb*)   * EVENT_LINUX_AIO_MAX_NENT + 
-			sizeof(struct event*)  * EVENT_LINUX_AIO_MAX_NENT +
-			sizeof(struct io_event)* EVENT_LINUX_AIO_MAX_NENT);
+	ctx = mm_calloc(1, sizeof(struct aio_linux_ctx));
 	if(ctx == NULL)
 		goto out;
 
@@ -124,9 +121,6 @@ aio_linux_init(struct event_base *base)
 		goto out_ctx;
 
 	ctx->max_nent = EVENT_LINUX_AIO_MAX_NENT;
-	ctx->iocbs     = (struct iocb **)(ctx + 1);
-	ctx->events    = (struct event **)(ctx->iocbs + ctx->max_nent);
-	ctx->io_events = (struct io_event *)(ctx->events + ctx->max_nent);
 
 	event_assign(&ctx->notify_event, base, ctx->notify_fd, 
 		     EV_READ|EV_PERSIST, aio_linux_callback, base);
@@ -159,6 +153,8 @@ aio_linux_dealloc(struct event_base *base, void *_evaiobase)
 	io_destroy(ctx->ctx_id);
 
 	close(ctx->notify_fd);
+
+	mm_free(ctx);
 }
 
 static void
@@ -211,6 +207,7 @@ aio_linux_submit(struct event_base *base)
 	do{
 		nent = 0;
 
+
 		for (ev = TAILQ_FIRST(&base->aioqueue); ev && nent < ctx->max_nent;
 		     ev = TAILQ_NEXT(ev, ev_aio_next))
 		{
@@ -234,8 +231,8 @@ aio_linux_submit(struct event_base *base)
 			if(result > 0){
 				for(i = 0; i < result; i++) {
 					ev = ctx->events[i];
-					ev->ev_flags |= EVLIST_AIO_SUBMITTED;
-					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);	
+					ev->ev_flags &= ~EVLIST_AIO;
+					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);
 				}
 			}else if(result == -EAGAIN){
 				/// we couldn't enqueue more iops. defer submitting more
@@ -256,8 +253,6 @@ aio_linux_submit(struct event_base *base)
 static void
 aio_linux_process_one(struct event *ev, struct io_event *io_event)
 {
-	ev->ev_flags &= ~EVLIST_AIO_SUBMITTED;
-
 	if(io_event->res < 0) {
 		ev->_ev.ev_aio.result = -1;	
 		ev->ev_res = io_event->res;	
@@ -266,10 +261,6 @@ aio_linux_process_one(struct event *ev, struct io_event *io_event)
 		ev->_ev.ev_aio.result = io_event->res;	
 		ev->ev_res = ev->_ev.ev_aio.error = 0;	
 	}
-
-	// in aio_linux_submit we removed ev from the aioqueue. 
-	// we can "just" submit the aio request and we are done. 
-
 	event_active(ev, EV_AIO, 1);
 }
 

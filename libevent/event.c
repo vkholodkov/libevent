@@ -271,7 +271,6 @@ event_base_new_with_config(struct event_config *cfg)
 
 	min_heap_ctor(&base->timeheap);
 	TAILQ_INIT(&base->eventqueue);
-	TAILQ_INIT(&base->sig.signalqueue);
 	TAILQ_INIT(&base->aioqueue);
 	TAILQ_INIT(&base->submittedqueue);
 	base->sig.ev_signal_pair[0] = -1;
@@ -390,7 +389,7 @@ event_base_free(struct event_base *base)
 		base->evaiosel->dealloc(base, base->evaiobase);
 
 	if (base->evsel != NULL && base->evsel->dealloc != NULL)
-		base->evsel->dealloc(base, base->evbase);
+		base->evsel->dealloc(base);
 
 	for (i = 0; i < base->nactivequeues; ++i)
 		assert(TAILQ_EMPTY(base->activequeues[i]));

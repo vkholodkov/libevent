@@ -36,6 +36,8 @@
 #include "event-internal.h"
 #include "log.h"
 #include "event-internal.h"
+#include "event2/thread.h"
+#include "evthread-internal.h"
 
 
 #ifndef  IOCB_FLAG_RESFD
@@ -194,6 +196,7 @@ aio_linux_prepare_write(struct event *ev, int fd, void *buf, size_t length, off_
 #endif
 }
 
+
 static void
 aio_linux_submit(struct event_base *base)
 {
@@ -207,6 +210,7 @@ aio_linux_submit(struct event_base *base)
 	do{
 		nent = 0;
 
+		EVTHREAD_ACQUIRE_LOCK(base, EVTHREAD_READ, th_base_lock);
 
 		for (ev = TAILQ_FIRST(&base->aioqueue); ev && nent < ctx->max_nent;
 		     ev = TAILQ_NEXT(ev, ev_aio_next))
@@ -220,6 +224,8 @@ aio_linux_submit(struct event_base *base)
 			nent++;
 		}
 
+		EVTHREAD_RELEASE_LOCK(base, EVTHREAD_READ, th_base_lock);
+
 		if(nent > 0){
 			if (ctx->notify_event_added == 0) {
 				event_add(&ctx->notify_event, NULL);
@@ -229,11 +235,17 @@ aio_linux_submit(struct event_base *base)
 			result = io_submit(ctx->ctx_id, nent, ctx->iocbs);
 
 			if(result > 0){
+
+				EVTHREAD_ACQUIRE_LOCK(base, EVTHREAD_WRITE, th_base_lock);
+
 				for(i = 0; i < result; i++) {
 					ev = ctx->events[i];
 					ev->ev_flags &= ~EVLIST_AIO;
 					TAILQ_REMOVE(&base->aioqueue, ev, ev_aio_next);
 				}
+
+				EVTHREAD_RELEASE_LOCK(base, EVTHREAD_WRITE, th_base_lock);
+
 			}else if(result == -EAGAIN){
 				/// we couldn't enqueue more iops. defer submitting more
 				break;

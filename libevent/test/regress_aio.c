@@ -75,7 +75,7 @@ test_aio(void)
 	event_aio_read(&ev, fd, buf2, TEST_BUFFER_SIZE, 2*TEST_BUFFER_SIZE, 0);
 	event_aio_read(&ev1, fd, buf3, TEST_BUFFER_SIZE, 3*TEST_BUFFER_SIZE, 0);
 
-	event_base_loop(base,0);
+	event_base_loop(base,EVLOOP_NONBLOCK);
 
 	event_base_free(base);
 

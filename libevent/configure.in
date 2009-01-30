@@ -327,7 +327,7 @@ AC_CHECK_FUNCS(eventfd, [haveeventfd=yes], )
 haveiosubmit=no
 AC_CHECK_FUNCS(io_submit, [haveiosubmit=yes], )
 
-if test "x$haveeventfd" = "xyes"; then
+if test "x$haveiosubmit" = "xyes" -a "x$haveeventfd" = "xyes"; then
 	AC_DEFINE(HAVE_LINUX_AIO, 1,
 		[Define if your system supports Linux AIO with eventfd])
     AC_LIBOBJ(aio_linux)
